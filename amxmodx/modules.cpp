@@ -76,6 +76,18 @@ void print_srvconsole(const char *fmt, ...)
 	SERVER_PRINT(string);
 }
 
+void* alloc_amxmemory(void** p, int size)
+{
+	*p = new unsigned char[size];
+	return *p;
+}
+
+void free_amxmemory(void **ptr)
+{
+	delete[] (unsigned char *)(*ptr);
+	*ptr = 0;
+}
+
 #if defined BINLOG_ENABLED
 void BinLog_LogNative(AMX *amx, int native, int params)
 {
@@ -218,14 +230,14 @@ int load_amxscript(AMX *amx, void **program, const char *filename, char error[64
 			sprintf(error, "Plugin not compiled with debug option");
 			return (amx->error = AMX_ERR_INIT);
 		}
-	} else {
-#ifdef JIT
-		//if (hdr->file_version == CUR_FILE_VERSION)
-		amx->flags |= AMX_FLAG_JITC;
-#endif
 	}
+	#ifdef JIT
+	else {
+		amx->flags |= AMX_FLAG_JITC;
+	}
+	#endif
 
-	if (g_opt_level != 65536)
+	if (g_optimizerFlags != OPT_DISABLE && !will_be_debugged)
 	{
 		SetupOptimizer(amx);
 	}
@@ -257,16 +269,15 @@ int load_amxscript(AMX *amx, void **program, const char *filename, char error[64
 
 		Debugger *pDebugger = new Debugger(amx, pDbg);
 		amx->userdata[UD_DEBUGGER] = pDebugger;
-	} else {
+	} 
 #ifdef JIT
+	else {
 		//set this again because amx_Init() erases it!
 		amx->flags |= AMX_FLAG_JITC;
 		amx->flags &= (~AMX_FLAG_DEBUG);
 		amx->sysreq_d = 0;
-#endif
 	}
 
-#ifdef JIT
 	if (amx->flags & AMX_FLAG_JITC)
 	{
 		char *np = new char[amx->code_size];
@@ -864,10 +875,10 @@ bool LoadModule(const char *shortname, PLUG_LOADTIME now, bool simplify, bool no
 		report_error(1, "[AMXX] Couldn't find info about module (file \"%s\")", path);
 		break;
 	case MODULE_NOQUERY:
-		report_error(1, "[AMXX] Couldn't find \"AMXX_Query\" (file \"%s\")", path);
+		report_error(1, "[AMXX] Couldn't find \"AMX_Query\" or \"AMXX_Query\" (file \"%s\")", path);
 		break;
 	case MODULE_NOATTACH:
-		report_error(1, "[AMXX] Couldn't find \"AMXX_Attach\" (file \"%s\")", path);
+		report_error(1, "[AMXX] Couldn't find \"%s\" (file \"%s\")", module->isAmxx() ? "AMXX_Attach" : "AMX_Attach", path);
 		break;
 	case MODULE_OLD:
 		report_error(1, "[AMXX] Module has a different interface version (file \"%s\")", path);
@@ -908,7 +919,7 @@ bool LoadModule(const char *shortname, PLUG_LOADTIME now, bool simplify, bool no
 
 	bool retVal = module->attachModule();
 
-	if (!retVal)
+	if (module->isAmxx() && !retVal)
 	{
 		switch (module->getStatusValue())
 		{
@@ -1012,6 +1023,23 @@ void detachReloadModules()
 		}
 		moduleIter++;
 	}
+}
+
+const char* strip_name(const char* a)
+{
+	const char* ret = a;
+
+	while (*a)
+	{
+		if (*a == '/' || *a == '\\')
+		{
+			ret = ++a;
+			continue;
+		}
+		++a;
+	}
+
+	return ret;
 }
 
 // Get the number of running modules
